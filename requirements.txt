@@ -11,3 +11,6 @@ pandas
 langchain-chroma
 langchain-google-vertexai
 langchain-groq
+google-generativeai
+langchain-huggingface
+sentence-transformers
