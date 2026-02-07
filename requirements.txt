@@ -1,0 +1,13 @@
+langchain
+langchain-community
+langchain-core
+langsmith
+langchain-google-genai
+pydantic
+python-dotenv
+ipykernel
+langchain-groq
+pandas
+langchain-chroma
+langchain-google-vertexai
+langchain-groq
