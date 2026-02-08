@@ -48,7 +48,7 @@ Conversation history is preserved, allowing creators to refine tone, pacing, and
 - **Framework:** LangChain (Chains, Prompt Templates, Memory)
 - **Data Validation:** Pydantic
 - **Vector Database:** ChromaDB
-- **Embeddings:** Google Generative AI Embeddings
+- **Embeddings:** Hugging Face Embeddings
 
 ---
 
