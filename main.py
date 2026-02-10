@@ -111,7 +111,6 @@ prompt =ChatPromptTemplate.from_messages([
 # LLM Integration with Groq and Gemini
 
 model=ChatGoogleGenerativeAI(model="gemini-2.5-flash",google_api_key=os.getenv("GEMINI_API_KEY"),temperature=0.7)
-chat_history=ChatMessageHistory()
 
 def segregate_intent(user_input, history):
     parser_prompt = f"""
@@ -134,7 +133,9 @@ def segregate_intent(user_input, history):
     clean_json = re.sub(r"```json|```", "", raw_response).strip()
     return json.loads(clean_json)
 
-def generate_trailer_package(user_input: str) -> TrailerPackage:
+def generate_trailer_package(user_input: str, chat_history: ChatMessageHistory = None) -> TrailerPackage:
+    if chat_history is None:
+        chat_history = ChatMessageHistory()
     parsed = segregate_intent(user_input, chat_history.messages)
     search_query = parsed.get('synopsis') or user_input
     relevant_docs = retrivar.invoke(search_query)
