@@ -2,7 +2,7 @@ from config.firebase_init import db
 from models.request import Request
 from fastapi import APIRouter,Depends, HTTPException
 from main import generate_trailer_package
-from auth import get_current_user
+from config.auth import get_current_user
 from services.session_service import create_session, validate_session
 from services.history_service import save_generation, load_chat_history_for_session, get_session_history
 router = APIRouter()

@@ -1,6 +1,6 @@
 from firebase_admin import firestore
 from config.firebase_init import db
-from langchain_classic.memory import ChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
 
 
 def save_generation(uid: str, session_id: str, prompt: str, response: dict):

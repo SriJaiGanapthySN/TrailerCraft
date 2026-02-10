@@ -9,7 +9,7 @@ import json
 import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from langchain_classic.memory import ChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
 
 dotenv.load_dotenv()
 
