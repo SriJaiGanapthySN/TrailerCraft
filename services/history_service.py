@@ -1,4 +1,5 @@
 from firebase_admin import firestore
+from google.cloud.firestore import FieldFilter
 from config.firebase_init import db
 from langchain_community.chat_message_histories import ChatMessageHistory
 
@@ -16,8 +17,8 @@ def save_generation(uid: str, session_id: str, prompt: str, response: dict):
 def get_session_history(uid: str, session_id: str):
     docs = (
         db.collection("generations")
-        .where("uid", "==", uid)
-        .where("session_id", "==", session_id)
+        .where(filter=FieldFilter("uid", "==", uid))
+        .where(filter=FieldFilter("session_id", "==", session_id))
         .order_by("createdAt")
         .stream()
     )
@@ -26,10 +27,6 @@ def get_session_history(uid: str, session_id: str):
 
 
 def load_chat_history_for_session(uid: str, session_id: str) -> ChatMessageHistory:
-    """
-    Load past generations from Firestore and reconstruct a
-    LangChain ChatMessageHistory so the LLM can continue the conversation.
-    """
     history = ChatMessageHistory()
     past_generations = get_session_history(uid, session_id)
 
