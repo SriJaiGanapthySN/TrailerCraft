@@ -1,7 +1,7 @@
-from google.cloud.firestore import FieldFilter
 from config.firebase_init import db
 from models.request import Request
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter,Depends, HTTPException
+from main import generate_trailer_package
 from config.auth import get_current_user
 from services.session_service import create_session, validate_session
 from services.history_service import save_generation, load_chat_history_for_session, get_session_history
@@ -17,7 +17,6 @@ def generate_trailer(request: Request,user=Depends(get_current_user)):
 
     chat_history = load_chat_history_for_session(uid, request.session_id)
 
-    from main import generate_trailer_package
     result = generate_trailer_package(request.prompt, chat_history)
 
     if isinstance(result, str):
@@ -43,7 +42,7 @@ def create_new_session(user=Depends(get_current_user)):
 def list_sessions(user=Depends(get_current_user)):
     docs = (
         db.collection("sessions")
-        .where(filter=FieldFilter("uid", "==", user["uid"]))
+        .where("uid", "==", user["uid"])
         .order_by("createdAt", direction="DESCENDING")
         .stream()
     )

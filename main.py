@@ -1,13 +1,76 @@
 import dotenv
 import os
 import pandas as pd
+from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate,MessagesPlaceholder
 import json
 import re
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_community.chat_message_histories import ChatMessageHistory
 
 dotenv.load_dotenv()
+
+
+data = pd.read_csv("dataset/Tamil_movies_dataset.csv")
+df = pd.read_csv("dataset/tamil.csv") 
+
+def generate_unified_profile(row):
+    name = row.get('MovieName') or row.get('Title')
+    genre = row.get('Genre')
+    director = row.get('Director')
+    actor = row.get('Actor') or row.get('Cast')
+    year = row.get('Year') or row.get('Release Year')
+    rating = row.get('Rating')
+    plot = row.get('Plot', 'No plot available')
+
+    return (
+        f"Title: {name}\n"
+        f"Genre: {genre}\n"
+        f"Director: {director}\n"
+        f"Actor: {actor}\n"
+        f"Release Year: {year}\n"
+        f"Rating: {rating}\n"
+        f"Synopsis: {plot}\n"
+    )
+
+data["profile"] = data.apply(generate_unified_profile, axis=1)
+docs_1 = [
+    Document(
+        page_content=row["profile"],
+        metadata={
+            "source": "Tamil_movies_dataset",
+            "title": row.get('MovieName'),
+            "genre": row.get('Genre'),
+            "year": row.get('Year')
+        }
+    ) for _, row in data.iterrows()
+]
+
+df["profile"] = df.apply(generate_unified_profile, axis=1)
+docs_2 = [
+    Document(
+        page_content=row["profile"],
+        metadata={
+            "source": "Tamil_dataset_2",
+            "title": row.get('Title'),
+            "genre": row.get('Genre'),
+            "year": row.get('Release Year')
+        }
+    ) for _, row in df.iterrows()
+]
+
+documents = docs_1 + docs_2
+
+print(f"Total documents prepared for TrailerCraft: {len(documents)}")
+
+
+
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+vectorstore=Chroma.from_documents(documents,embeddings,persist_directory="dataset/Tamil_movies_dataset_chroma")
+
 
 from pydantic import BaseModel,Field
 from typing import List
@@ -32,6 +95,7 @@ class TrailerPackage(BaseModel):
     director_consultation: DirectorConsultation
 
 
+retrivar = vectorstore.as_retriever(search_kwargs={"k": 10})
 
 prompt =ChatPromptTemplate.from_messages([
     ("system",    """You are a Kollywood Trailer Editor who is an expert in creating engaging and captivating trailers for Tamil movies.
@@ -48,53 +112,22 @@ prompt =ChatPromptTemplate.from_messages([
 
 model=ChatGoogleGenerativeAI(model="gemini-2.5-flash",google_api_key=os.getenv("GEMINI_API_KEY"),temperature=0.7)
 
-def _detect_specific_mode(user_input: str) -> str | None:
-    """Keyword-based fallback: return 'specific' if user clearly wants one thing only."""
-    lower = user_input.lower().strip()
-    specific_phrases = [
-        "give me a title", "just a title", "only a title", "only title",
-        "just give title", "just give a title", "give title", "give a title",
-        "title for", "suggest a title", "suggest title", "movie title",
-        "give me a bgm", "just the bgm", "only bgm", "music mood",
-        "just a font", "only font", "font style",
-        "just the cast", "only cast", "cast idea",
-    ]
-    for phrase in specific_phrases:
-        if phrase in lower:
-            return "specific"
-    if re.search(r"\b(title|bgm|font|cast)\s+(only|please|pls)\b", lower):
-        return "specific"
-    # Broader: "title" + narrowing word (just/give/only) = specific
-    if "title" in lower and re.search(r"\b(just|give|only|suggest)\b", lower):
-        return "specific"
-    return None
-
-
 def segregate_intent(user_input, history):
-    # Fast path: keyword-based detection for clearly specific requests
-    detected = _detect_specific_mode(user_input)
-   
-    if detected == "specific":
-        style_match = re.search(r"(\w+)\s+style", user_input, re.I)
-        return {
-            "synopsis": user_input,
-            "mode": "specific",
-            "target": "title" if "title" in user_input.lower() else "bgm" if "bgm" in user_input.lower() or "music" in user_input.lower() else "other",
-            "style": style_match.group(1) if style_match else "",
-            "instructions": "",
-        }
-
     parser_prompt = f"""
     Analyze this user request: "{user_input}"
-
-    CRITICAL: mode must be "specific" when the user asks for ONLY one small thing:
-    - "Give me a title" / "just a title" / "title for X" -> mode: "specific", target: "title"
-    - "Just the BGM" / "music mood" -> mode: "specific", target: "bgm"
-    - "Font style only" -> mode: "specific", target: "font"
-    mode must be "full" ONLY when they want a complete trailer, script, or full breakdown.
-
-    Return ONLY valid JSON (no markdown):
-    {{"synopsis": "extracted plot or context", "mode": "specific" or "full", "target": "title" or "bgm" or "script" or "font", "style": "extracted style", "instructions": "any other notes"}}
+    
+    Rules:
+    - If the user asks for a specific tiny detail (just a title, just BGM, just a cast idea) without wanting a full script, set mode: "specific".
+    - If the user asks for a trailer, a script, or a full story breakdown, set mode: "full".
+    
+    Return ONLY JSON: 
+    {{
+        "synopsis": "extracted plot", 
+        "mode": "full" or "specific", 
+        "target": "title" or "bgm" or "script",
+        "style": "extracted style",
+        "instructions": "any other notes"
+    }}
     """
     raw_response = model.invoke(parser_prompt).content
     clean_json = re.sub(r"```json|```", "", raw_response).strip()
@@ -104,21 +137,11 @@ def generate_trailer_package(user_input: str, chat_history: ChatMessageHistory =
     if chat_history is None:
         chat_history = ChatMessageHistory()
     parsed = segregate_intent(user_input, chat_history.messages)
-    print(f"[DEBUG] prompt={repr(user_input)} mode={parsed.get('mode')} target={parsed.get('target')}")
     search_query = parsed.get('synopsis') or user_input
+    relevant_docs = retrivar.invoke(search_query)
+    context_data = "\n\n".join([doc.page_content for doc in relevant_docs])
     if parsed['mode'] == 'specific':
-        target = parsed.get('target', 'other')
-        if target == 'title':
-            specific_prompt = f"""Context: {search_query}
-            User request: {user_input}
-            Provide ONLY a catchy movie title. No explanation, no structure, no other content.
-            If Kollywood/Tamil: give title in Tamil and English. Style: {parsed.get('style', 'general')}.
-            Output: just the title(s), nothing else."""
-        elif target == 'bgm':
-            specific_prompt = f"""Context: {search_query} User request: {user_input}
-            Provide ONLY the music mood/BGM description. No explanation, no other content. Be brief."""
-        else:
-            specific_prompt = f"Context: {search_query}\nHistory: {chat_history.messages}\nUser: {user_input}\nAnswer ONLY the specific request briefly."
+        specific_prompt = f"Context: {context_data}\nHistory: {chat_history.messages}\nUser: {user_input}\nAnswer ONLY the specific request briefly."
         response = model.invoke(specific_prompt).content
         print(response)
         chat_history.add_user_message(user_input)
@@ -129,6 +152,7 @@ def generate_trailer_package(user_input: str, chat_history: ChatMessageHistory =
         chain = prompt | structeredllm
         response = chain.invoke({
             "chat_history": chat_history.messages,
+            "context": context_data,
             "synopsis": parsed['synopsis'],
             "instructions": f"Style: {parsed.get('style', 'General')}. Extra: {parsed.get('instructions', 'None')}"
         })
